@@ -50,7 +50,7 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm install   # ✅
+      - run: npm install
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
@@ -100,7 +100,7 @@ jobs:
             freeglut3-dev \
             mesa-common-dev
 
-      - run: npm install   # ✅
+      - run: npm install
 
       - name: Create .env file
         run: echo "VITE_BACKEND_URL=http://localhost:8000" > .env
@@ -128,7 +128,6 @@ jobs:
         with:
           path: artifacts
 
-      # ✅ FIX: ensure notes file always created cleanly
       - name: Generate Release Notes Table
         run: |
           echo "## Helios ${GITHUB_REF_NAME} Assets" > notes.md
@@ -156,13 +155,13 @@ jobs:
             echo "| $os | [$name]($url) | $size | \`$checksum\` |" >> notes.md
           done
 
-      # ✅ FIX: explicitly pass tag_name
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: artifacts/**/*
           body_path: notes.md
-          generate_release_notes: true
+          generate_release_notes: false
           draft: false
           prerelease: false
+
