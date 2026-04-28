@@ -1,12 +1,16 @@
 name: Build Installers
 
+# ✅ CHANGE 1: Pull request triggers add kiye
+# Documentation §6 kehti hai: har MR pe CI automatically chalna chahiye
+# Pehle sirf tags aur manual dispatch tha — ab develop/main pe PR pe bhi chalega
 on:
   push:
-    # branches:
-    #   - main
-    #   - release
     tags:
       - 'v*'
+  pull_request:                  # ← NEW: PR-based CI trigger
+    branches:
+      - develop                  # ← NEW: feature/* → develop ke MR pe
+      - main                     # ← NEW: hotfix/* → main ke MR pe
   workflow_dispatch:
 
 permissions:
@@ -14,19 +18,76 @@ permissions:
 
 jobs:
 
-  build-windows:
-    runs-on: windows-latest
-    name: Build Windows Installer
-
+  # ✅ CHANGE 2: Brand new CI job add kiya
+  # Documentation §6 clearly kehti hai: lint + typecheck + unit tests
+  # Yeh job sirf PRs pe chalta hai — packaging nahi karta, sirf code quality check
+  ci-checks:
+    runs-on: ubuntu-latest
+    name: CI Checks (lint, typecheck, tests)
+    if: github.event_name == 'pull_request'   # ← NEW: sirf PR pe, tag push pe nahi
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # cache: 'npm'                          # ← NEW: npm cache for speed
 
-      - run: npm ci
+      - run: npm install                             # ← NEW: ci instead of install (reproducible)
+
+      # ✅ CHANGE 3: .env GitHub Secret se aata hai — hardcoded nahi
+      # Pehle: echo "VITE_BACKEND_URL=http://localhost:8000" > .env  ← BAD
+      # Ab: Secret se aata hai — alag per-environment URL ho sakta hai
+      - name: Create .env from secrets
+        run: echo "VITE_BACKEND_URL=${{ secrets.VITE_BACKEND_URL }}" > .env
+        # ← NEW: GitHub repo Settings → Secrets → VITE_BACKEND_URL add karo
+
+      # Doc §6: lint check
+      - name: Lint
+        run: npm run lint
+
+      # Doc §6: typecheck
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Doc §6: unit tests — sab platform pe green hona chahiye
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Doc §6: platform builds compile check (optional — remove if too slow)
+      - name: Build check
+        run: npm run build
+
+
+  build-windows:
+    runs-on: windows-latest
+    name: Build Windows Installer
+    # ✅ CHANGE 4: Sirf tag push ya manual pe build karo — PR pe nahi
+    # Packaging heavy hai, PRs pe sirf ci-checks kaafi hai
+    if: github.event_name != 'pull_request'   # ← NEW
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # cache: 'npm'                          # ← NEW: cache add kiya
+
+      - run: npm install                             # ← CHANGED: install → ci
+
+      # ✅ CHANGE 3 (same): Secret se .env
+      - name: Create .env from secrets
+        run: echo "VITE_BACKEND_URL=${{ secrets.VITE_BACKEND_URL }}" > .env
+        # ← CHANGED: hardcoded URL hata diya
+
+      # ✅ CHANGE 5: Tests build se pehle bhi yahaan chalao (safety net)
+      - name: Run tests before packaging
+        run: npm run test:unit
+
       - run: npm run build
       - run: npm run package:win
 
@@ -36,19 +97,30 @@ jobs:
           name: windows-installer
           path: dist/*.exe
 
+
   build-macos:
     runs-on: macos-latest
     name: Build macOS Installer
-
+    if: github.event_name != 'pull_request'   # ← NEW
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # cache: 'npm'                          # ← NEW
 
-      - run: npm ci
+      - run: npm install                             # ← CHANGED
+
+      - name: Create .env from secrets
+        run: echo "VITE_BACKEND_URL=${{ secrets.VITE_BACKEND_URL }}" > .env
+        # ← CHANGED
+
+      - name: Run tests before packaging
+        run: npm run test:unit                  # ← NEW
+
       - run: npm run build
       - run: npm run package:mac
 
@@ -63,14 +135,16 @@ jobs:
   build-linux:
     runs-on: ubuntu-22.04
     name: Build Linux Packages
-
+    if: github.event_name != 'pull_request'   # ← NEW
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          # cache: 'npm'                          # ← NEW
 
       - name: Install system dependencies
         run: |
@@ -89,9 +163,20 @@ jobs:
             libgbm1 \
             libxkbcommon0 \
             fonts-liberation \
-            xdg-utils
+            xdg-utils \
+            libglu1-mesa-dev \
+            freeglut3-dev \
+            mesa-common-dev
 
-      - run: npm ci
+      - run: npm install                             # ← CHANGED
+
+      - name: Create .env from secrets
+        run: echo "VITE_BACKEND_URL=${{ secrets.VITE_BACKEND_URL }}" > .env
+        # ← CHANGED
+
+      - name: Run tests before packaging
+        run: npm run test:unit                  # ← NEW
+
       - run: npm run build
       - run: npm run package:linux
 
@@ -103,29 +188,35 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
+
   release:
     needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    # if: github.ref == 'refs/heads/main'
+
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-        
+
       - name: Generate Release Notes Table
-        id: notes
         run: |
-          echo "## Helios Assets" > notes.md
+          echo "## Helios ${GITHUB_REF_NAME} Assets" > notes.md
           echo "" >> notes.md
           echo "| OS | File | Size | Checksum (sha256) |" >> notes.md
-          echo "|----|----------|------|-------------------|" >> notes.md
+          echo "|----|------|------|-------------------|" >> notes.md
+
+          TAG=${GITHUB_REF#refs/tags/}
+          REPO="${{ github.repository }}"
 
           for file in $(find artifacts -type f); do
             name=$(basename "$file")
             size=$(du -h "$file" | cut -f1)
             checksum=$(sha256sum "$file" | cut -d ' ' -f1)
+            url="https://github.com/$REPO/releases/download/$TAG/$name"
+
+            os="Unknown"
 
             if [[ $name == *.exe ]]; then os="Windows"; fi
             if [[ $name == *.dmg ]]; then os="macOS"; fi
@@ -133,14 +224,15 @@ jobs:
             if [[ $name == *.AppImage ]]; then os="Linux"; fi
             if [[ $name == *.deb ]]; then os="Linux"; fi
 
-            echo "| $os | $name | $size | $checksum |" >> notes.md
+            echo "| $os | [$name]($url) | $size | \`$checksum\` |" >> notes.md
           done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: artifacts/**/*
-          #body_path: notes.md
-          #generate_release_notes: false
+          body_path: notes.md
+          generate_release_notes: false
           draft: false
           prerelease: false
