@@ -1,5 +1,5 @@
 ===============================================================
-  Helios Desktop — Linux Installation Guide
+  Helios Desktop — Linux Installation Guide   
 ===============================================================
 
 This folder contains three ways to install Helios on Linux.
