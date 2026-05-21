@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Helios
+GenericName=Helios Desktop
+Comment=Helios Desktop Application
+Exec=__INSTALL_DIR__/app/helios__NOSANDBOX__ %U
+Icon=helios
+Terminal=false
+Categories=Utility;Development;
+StartupNotify=true
+StartupWMClass=Helios
